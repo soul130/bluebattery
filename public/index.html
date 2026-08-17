@@ -59,7 +59,10 @@
 </div>
 
 <script>
-    // 토스페이먼츠 공식 테스트 클라이언트 키
+    // 백엔드 서버 URL 설정
+    const API_BASE_URL = 'https://bluebattery.onrender.com';
+
+    // 토스페이먼츠 클라이언트 테스트 키
     const clientKey = 'test_ck_D53483Lbe251705e4B53da947F0a';
     let tossPayments = null;
     
@@ -74,18 +77,23 @@
         const password = document.getElementById('password').value;
         const msgDiv = document.getElementById('authMessage');
 
-        const res = await fetch('/api/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-            msgDiv.className = 'success-msg';
-            msgDiv.innerText = data.message;
-        } else {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                msgDiv.className = 'success-msg';
+                msgDiv.innerText = data.message;
+            } else {
+                msgDiv.className = 'error-msg';
+                msgDiv.innerText = data.error;
+            }
+        } catch (err) {
             msgDiv.className = 'error-msg';
-            msgDiv.innerText = data.error;
+            msgDiv.innerText = '서버 통신 오류가 발생했습니다.';
         }
     }
 
@@ -94,18 +102,23 @@
         const password = document.getElementById('password').value;
         const msgDiv = document.getElementById('authMessage');
 
-        const res = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-            msgDiv.className = 'success-msg';
-            msgDiv.innerText = data.message;
-        } else {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                msgDiv.className = 'success-msg';
+                msgDiv.innerText = data.message;
+            } else {
+                msgDiv.className = 'error-msg';
+                msgDiv.innerText = data.error;
+            }
+        } catch (err) {
             msgDiv.className = 'error-msg';
-            msgDiv.innerText = data.error;
+            msgDiv.innerText = '서버 통신 오류가 발생했습니다.';
         }
     }
 
@@ -115,7 +128,7 @@
         resultDiv.innerHTML = '<p style="text-align:center; margin-top:10px;">조회 중...</p>';
         
         try {
-            const res = await fetch(`/api/car/search?carNumber=${encodeURIComponent(carNumber)}`);
+            const res = await fetch(`${API_BASE_URL}/api/car/search?carNumber=${encodeURIComponent(carNumber)}`);
             const data = await res.json();
             
             if (data.success) {
