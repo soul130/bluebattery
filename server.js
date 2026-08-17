@@ -12,7 +12,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // -------------------------------------------------------------
-// 1. SQLite DB 설정 (회원, 카드정보, 예약 내역, 관리자 권한)
+// 1. SQLite DB 안전 초기화 (테이블 자동 생성 및 기본 관리자 등록)
 // -------------------------------------------------------------
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) console.error("DB 연결 실패:", err);
@@ -20,7 +20,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
 });
 
 db.serialize(() => {
-    // 회원 테이블 (phone, role 추가)
+    // 회원 테이블
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE,
@@ -46,13 +46,9 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 기존 DB 컬럼 누락 방지 (자동 컬럼 추가)
-    db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
-    db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, () => {});
-    db.run(`ALTER TABLE reservations ADD COLUMN status TEXT DEFAULT '접수완료'`, () => {});
-
-    // 기본 관리자 계정 생성 (admin@blue.com / admin123)
-    db.run(`INSERT OR IGNORE INTO users (email, password, name, phone, role) VALUES ('admin@blue.com', 'admin123', '최고관리자', '01000000000', 'admin')`);
+    // 최고관리자 계정 기본 생성 (admin@blue.com / admin123)
+    db.run(`INSERT OR IGNORE INTO users (email, password, name, phone, role) 
+            VALUES ('admin@blue.com', 'admin123', '최고관리자', '01000000000', 'admin')`);
 });
 
 // CODEF API 설정
@@ -85,17 +81,28 @@ const BATTERY_DATABASE = [
 // -------------------------------------------------------------
 app.post('/api/register', (req, res) => {
     const { email, password, name, phone } = req.body;
+    
     if (!email || !password || !name || !phone) {
-        return res.status(400).json({ message: '이름, 이메일, 비밀번호, 전화번호를 모두 입력해주세요.' });
+        return res.status(400).json({ message: '모든 입력 항목을 채워주세요.' });
     }
 
-    db.run(`INSERT INTO users (email, password, name, phone, role) VALUES (?, ?, ?, ?, 'user')`, [email, password, name, phone], function(err) {
+    const query = `INSERT INTO users (email, password, name, phone, role) VALUES (?, ?, ?, ?, 'user')`;
+    
+    db.run(query, [email, password, name, phone], function(err) {
         if (err) {
-            console.error("회원가입 DB 에러:", err);
-            return res.status(400).json({ message: '이미 가입된 이메일이거나 등록 중 오류가 발생했습니다.' });
+            console.error("회원가입 DB 오류:", err.message);
+            if (err.message.includes('UNIQUE')) {
+                return res.status(400).json({ message: '이미 가입된 이메일 주소입니다.' });
+            }
+            return res.status(500).json({ message: '회원가입 중 서버 오류가 발생했습니다.' });
         }
+        
         const token = jwt.sign({ email, name, role: 'user' }, JWT_SECRET, { expiresIn: '365d' });
-        res.json({ message: '회원가입 성공', token, user: { email, name, phone, role: 'user', hasCard: false } });
+        res.json({ 
+            message: '회원가입 성공', 
+            token, 
+            user: { email, name, phone, role: 'user', hasCard: false } 
+        });
     });
 });
 
@@ -175,7 +182,6 @@ app.post('/api/reserve', (req, res) => {
     });
 });
 
-// [관리자 API] 전체 예약 내역 조회
 app.get('/api/admin/reservations', (req, res) => {
     db.all(`SELECT * FROM reservations ORDER BY id DESC`, [], (err, rows) => {
         if (err) return res.status(500).json({ message: '조회 실패' });
@@ -183,10 +189,9 @@ app.get('/api/admin/reservations', (req, res) => {
     });
 });
 
-// [관리자 API] 예약 상태 변경 (예: 접수완료 -> 작업완료 / 취소)
 app.post('/api/admin/update-status', (req, res) => {
     const { id, status } = req.body;
-    db.run(`UPDATE reservations SET status = ? WHERE id = ?`, [status, id], function(err) {
+    db.run(`UPDATE reservations SET status = ? WHERE id = ?`, [id, status], function(err) {
         if (err) return res.status(500).json({ message: '상태 변경 실패' });
         res.json({ message: '예약 상태가 변경되었습니다.' });
     });
