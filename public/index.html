@@ -3,21 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlueBattery - 차량 조회 & 배터리 교체 예약</title>
+    <title>BlueBattery - 블루카서비스</title>
+    <script src="https://cdn.portone.io/v2/browser-sdk.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Noto Sans KR', sans-serif; }
+        * { box-sizing: border-box; font-family: 'Noto Sans KR', sans-serif; margin: 0; padding: 0; }
         body { background-color: #f4f6f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
-        .container { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 100%; max-width: 450px; }
-        h1 { color: #0056b3; font-size: 22px; text-align: center; margin-bottom: 20px; }
-        .section { margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
-        .section-title { font-size: 15px; font-weight: bold; margin-bottom: 10px; color: #333; }
-        input, select { width: 100%; padding: 11px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; font-size: 14px; }
-        button { width: 100%; padding: 12px; background-color: #0056b3; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:hover { background-color: #004085; }
-        .card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 15px; margin-top: 10px; font-size: 14px; line-height: 1.5; }
-        .highlight { color: #0056b3; font-weight: bold; }
-        .hidden { display: none; }
-        .price { font-size: 18px; color: #d9534f; font-weight: bold; margin-top: 5px; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
+        h1 { color: #0056b3; text-align: center; margin-bottom: 20px; font-size: 26px; }
+        .nav-tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 2px solid #e1e1e1; padding-bottom: 10px; }
+        .tab-btn { flex: 1; padding: 10px; background: #e9ecef; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: #495057; font-size: 13px; }
+        .tab-btn.active { background: #0056b3; color: white; }
+        .section { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 6px; color: #333; font-size: 14px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; margin-bottom: 10px; }
+        button.btn-main { width: 100%; padding: 14px; background-color: #0056b3; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+        button.btn-main:hover { background-color: #003d80; }
+        button.btn-sub { width: 100%; padding: 10px; background-color: #6c757d; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-top: 5px; }
+        .hidden { display: none !important; }
+        .battery-card { border: 2px solid #e1e1e1; border-radius: 8px; padding: 12px; margin-bottom: 8px; cursor: pointer; background: #fafafa; }
+        .battery-card.selected { border-color: #0056b3; background-color: #f0f7ff; }
+        .price { font-weight: bold; color: #d9534f; float: right; }
+        .user-header { display: flex; justify-content: space-between; align-items: center; background: #eef5ff; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; }
+        .error-msg { color: #d9534f; font-size: 13px; text-align: center; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -25,119 +32,257 @@
 <div class="container">
     <h1>BlueBattery</h1>
 
-    <!-- 1단계: 차량 조회 -->
-    <div class="section">
-        <div class="section-title">1. 차량 번호 및 소유자 조회</div>
-        <input type="text" id="carNumber" placeholder="차량 번호 (예: 12가3456)">
-        <input type="text" id="ownerName" placeholder="소유자명 또는 주민번호 앞자리">
-        <button onclick="searchCar()">맞춤 배터리 찾기</button>
+    <!-- 1. 로그인 / 회원가입 화면 -->
+    <div id="view-auth">
+        <div id="login-box" class="section">
+            <label>이메일 로그인</label>
+            <input type="email" id="loginEmail" placeholder="이메일 주소">
+            <input type="password" id="loginPw" placeholder="비밀번호">
+            <button class="btn-main" onclick="handleLogin()">로그인</button>
+            <button class="btn-sub" onclick="toggleAuth('register')">회원가입으로 이동</button>
+        </div>
+        <div id="register-box" class="section hidden">
+            <label>신규 회원가입</label>
+            <input type="text" id="regName" placeholder="이름">
+            <input type="email" id="regEmail" placeholder="이메일 주소">
+            <input type="password" id="regPw" placeholder="비밀번호">
+            <button class="btn-main" onclick="handleRegister()">회원가입 완료</button>
+            <button class="btn-sub" onclick="toggleAuth('login')">로그인으로 이동</button>
+        </div>
+        <p id="auth-error" class="error-msg"></p>
     </div>
 
-    <!-- 2단계: 조회 결과 및 배터리 추천 (조회 후 표시) -->
-    <div id="step2" class="section hidden">
-        <div class="section-title">2. 추천 맞춤 배터리</div>
-        <div class="card">
-            <div id="batteryName" class="highlight" style="font-size: 16px;"></div>
-            <div id="batteryDesc" style="color: #666; font-size: 13px; margin: 4px 0;"></div>
-            <div id="batteryPrice" class="price"></div>
+    <!-- 2. 로그인 후 메인 대시보드 -->
+    <div id="view-dashboard" class="hidden">
+        <div class="user-header">
+            <span id="user-info-text">님 환영합니다!</span>
+            <button onclick="handleLogout()" style="padding: 4px 8px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">로그아웃</button>
+        </div>
+
+        <div class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('car')">1. 차량 조회</button>
+            <button class="tab-btn" onclick="switchTab('battery')">2. 배터리 목록</button>
+            <button class="tab-btn" onclick="switchTab('reserve')">3. 교체 예약</button>
+        </div>
+
+        <!-- 탭 1: 차량 조회 -->
+        <div id="tab-car" class="tab-content">
+            <label>국토부 실시간 차량 조회</label>
+            <input type="text" id="carNo" placeholder="차량번호 (예: 16러4490)">
+            <input type="text" id="ownerName" placeholder="소유자 성명 (예: 홍길동)">
+            <button class="btn-main" onclick="searchCar()">차량 조회하기</button>
+            <p id="car-error" class="error-msg"></p>
+        </div>
+
+        <!-- 탭 2: 배터리 목록 -->
+        <div id="tab-battery" class="tab-content hidden">
+            <label>선택 가능 배터리 목록</label>
+            <div id="battery-list">
+                <p style="font-size: 13px; color: #666; text-align: center;">차량 조회를 먼저 진행하시거나 일반 목록에서 선택해 주세요.</p>
+            </div>
+        </div>
+
+        <!-- 탭 3: 교체 예약 및 카드 결제 -->
+        <div id="tab-reserve" class="tab-content hidden">
+            <label>배터리 교체 예약 및 결제</label>
+            <select id="serviceType">
+                <option value="visit">출장 교체 서비스</option>
+                <option value="branch">지점 방문 교체</option>
+            </select>
+            <input type="text" id="custPhone" placeholder="연락처 (- 없이 입력)">
+            <input type="datetime-local" id="reserveDate">
+            <input type="text" id="address" placeholder="방문 주소">
+
+            <div style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                <label style="margin:0;">카드 관리 및 결제 옵션</label>
+                <button class="btn-sub" onclick="registerCard()" style="background: #28a745; margin-top: 8px;">실제 자동결제 카드 등록</button>
+            </div>
+
+            <button class="btn-main" onclick="requestPayment()">결제 및 예약하기</button>
         </div>
     </div>
-
-    <!-- 3단계: 배터리 구매 & 교체 예약 -->
-    <div id="step3" class="section hidden" style="border-bottom: none; margin-bottom: 0;">
-        <div class="section-title">3. 배터리 구매 & 교체 예약</div>
-        
-        <label style="font-size: 13px; color: #555;">교체 방식 선택</label>
-        <select id="serviceType">
-            <option value="출장교체">방문 출장 교체 (기사님 방문)</option>
-            <option value="지점방문">지점 방문 교체 (매장 방문)</option>
-        </select>
-
-        <input type="datetime-local" id="reserveDate">
-        <input type="text" id="address" placeholder="출장 장소 주소 또는 방문 희망 지점">
-        <input type="tel" id="phone" placeholder="연락처 (- 없이 입력)">
-
-        <button onclick="submitReservation()" style="background-color: #28a745;">구매 및 교체 예약 신청</button>
-    </div>
-
-    <div id="statusMsg" style="text-align: center; font-size: 14px; margin-top: 10px;"></div>
 </div>
 
 <script>
-    let currentBattery = null;
+    const API_BASE_URL = "https://bluebattery.onrender.com";
+    let currentUser = null;
+    let selectedBattery = null;
+    let currentCarData = { carNo: '' };
 
-    async function searchCar() {
-        const carNumber = document.getElementById('carNumber').value;
-        const ownerName = document.getElementById('ownerName').value;
-        const statusMsg = document.getElementById('statusMsg');
-
-        if (!carNumber || !ownerName) {
-            alert('차량번호와 소유자명을 입력해주세요.');
-            return;
+    // 페이지 로드 시 자동 로그인 유지 검사
+    window.onload = () => {
+        const token = localStorage.getItem('bt_token');
+        const user = localStorage.getItem('bt_user');
+        if (token && user) {
+            currentUser = JSON.parse(user);
+            showDashboard();
         }
+    };
 
-        statusMsg.style.color = '#666';
-        statusMsg.innerText = '차량 제원 조회 및 배터리 매칭 중...';
-
-        try {
-            const res = await fetch('/api/car-info', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ carNumber, ownerName })
-            });
-            const result = await res.json();
-
-            if (result.success) {
-                currentBattery = result.battery;
-                document.getElementById('batteryName').innerText = result.battery.modelName;
-                document.getElementById('batteryDesc').innerText = result.battery.description;
-                document.getElementById('batteryPrice').innerText = result.battery.price.toLocaleString() + '원 (공임비 포함)';
-
-                document.getElementById('step2').classList.remove('hidden');
-                document.getElementById('step3').classList.remove('hidden');
-                statusMsg.innerText = '';
-            } else {
-                statusMsg.style.color = 'red';
-                statusMsg.innerText = result.message || '조회에 실패했습니다.';
-            }
-        } catch (err) {
-            statusMsg.style.color = 'red';
-            statusMsg.innerText = '서버와 통신할 수 없습니다.';
-        }
+    function toggleAuth(type) {
+        document.getElementById('login-box').classList.toggle('hidden', type !== 'login');
+        document.getElementById('register-box').classList.toggle('hidden', type !== 'register');
+        document.getElementById('auth-error').innerText = '';
     }
 
-    async function submitReservation() {
-        const carNumber = document.getElementById('carNumber').value;
-        const serviceType = document.getElementById('serviceType').value;
-        const date = document.getElementById('reserveDate').value;
-        const address = document.getElementById('address').value;
-        const phone = document.getElementById('phone').value;
+    async function handleLogin() {
+        const email = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPw').value.trim();
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message);
 
-        if (!date || !address || !phone) {
-            alert('예약 일시, 주소, 연락처를 모두 입력해 주세요.');
-            return;
-        }
+            localStorage.setItem('bt_token', data.token);
+            localStorage.setItem('bt_user', JSON.stringify(data.user));
+            currentUser = data.user;
+            showDashboard();
+        } catch(e) { document.getElementById('auth-error').innerText = e.message; }
+    }
 
-        const res = await fetch('/api/reservation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                carNumber,
-                batteryName: currentBattery ? currentBattery.modelName : '',
-                serviceType,
-                date,
-                address,
-                phone
-            })
+    async function handleRegister() {
+        const name = document.getElementById('regName').value.trim();
+        const email = document.getElementById('regEmail').value.trim();
+        const password = document.getElementById('regPw').value.trim();
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, password })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message);
+
+            localStorage.setItem('bt_token', data.token);
+            localStorage.setItem('bt_user', JSON.stringify(data.user));
+            currentUser = data.user;
+            showDashboard();
+        } catch(e) { document.getElementById('auth-error').innerText = e.message; }
+    }
+
+    function handleLogout() {
+        localStorage.removeItem('bt_token');
+        localStorage.removeItem('bt_user');
+        location.reload();
+    }
+
+    function showDashboard() {
+        document.getElementById('view-auth').classList.add('hidden');
+        document.getElementById('view-dashboard').classList.remove('hidden');
+        document.getElementById('user-info-text').innerText = `${currentUser.name} (${currentUser.email}) 님`;
+        loadDefaultBatteries();
+    }
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+        
+        event.target.classList.add('active');
+        document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+    }
+
+    async function searchCar() {
+        const carNo = document.getElementById('carNo').value.trim();
+        const ownerName = document.getElementById('ownerName').value.trim();
+        const errorEl = document.getElementById('car-error');
+        errorEl.innerText = "조회 중입니다...";
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/car-search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ carNo, ownerName })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message);
+
+            errorEl.innerText = "";
+            currentCarData = data;
+            renderBatteries(data.recommendedBatteries);
+            alert(`${data.carModel} 차량 조회가 완료되었습니다. 배터리 목록 탭에서 확인하세요.`);
+        } catch(e) { errorEl.innerText = e.message; }
+    }
+
+    function loadDefaultBatteries() {
+        renderBatteries([
+            { name: '로케트/델코 범용 맞춤 배터리 (80Ah)', price: 120000 },
+            { name: '로케트 AGM80 (스탑앤고 고성능)', price: 145000 }
+        ]);
+    }
+
+    function renderBatteries(batteries) {
+        const listEl = document.getElementById('battery-list');
+        listEl.innerHTML = "";
+        batteries.forEach((b, idx) => {
+            const card = document.createElement('div');
+            card.className = `battery-card ${idx === 0 ? 'selected' : ''}`;
+            if(idx === 0) selectedBattery = b;
+            card.innerHTML = `<span>${b.name}</span><span class="price">${b.price.toLocaleString()}원</span>`;
+            card.onclick = () => {
+                document.querySelectorAll('.battery-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                selectedBattery = b;
+            };
+            listEl.appendChild(card);
         });
+    }
 
-        const result = await res.json();
-        if (result.success) {
-            alert('🎉 예약 및 구매 접수가 완료되었습니다!\n확인 후 기사님이 연락드릴 예정입니다.');
+    // 카드 등록 (빌링키 발급)
+    function registerCard() {
+        PortOne.requestIssueBillingKey({
+            storeId: "store-218227ec-15b5-4b36-a3ee-8bf589410ef3",
+            channelKey: "channel-key-toss-pay",
+            billingKeyPaymentMethod: "CARD"
+        }).then(async (response) => {
+            if (response.code != null) return alert(`카드 등록 실패: ${response.message}`);
+            
+            await fetch(`${API_BASE_URL}/api/save-card`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: currentUser.email, billingKey: response.billingKey })
+            });
+            alert('자동결제 카드가 성공적으로 등록되었습니다.');
+        });
+    }
+
+    async function requestPayment() {
+        if(!selectedBattery) return alert('배터리를 먼저 선택해주세요.');
+        const phone = document.getElementById('custPhone').value.trim();
+        const date = document.getElementById('reserveDate').value;
+        const address = document.getElementById('address').value.trim();
+        if(!phone || !date) return alert('연락처와 예약 일시를 입력해주세요.');
+
+        PortOne.requestPayment({
+            storeId: "store-218227ec-15b5-4b36-a3ee-8bf589410ef3",
+            channelKey: "channel-key-toss-pay",
+            paymentId: `pay_${Date.now()}`,
+            orderName: `[BlueBattery] ${selectedBattery.name}`,
+            totalAmount: selectedBattery.price,
+            currency: "CURRENCY_KRW",
+            payMethod: "CARD"
+        }).then(async (response) => {
+            if (response.code != null) return alert(`결제 실패: ${response.message}`);
+            
+            await fetch(`${API_BASE_URL}/api/reserve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userEmail: currentUser.email,
+                    paymentId: response.paymentId,
+                    carNo: currentCarData.carNo || '미조회',
+                    batteryName: selectedBattery.name,
+                    phone: phone,
+                    reserveDate: date,
+                    address: address
+                })
+            });
+            alert('결제 및 예약 접수가 완료되었습니다.');
             location.reload();
-        } else {
-            alert(result.message || '예약 실패');
-        }
+        });
     }
 </script>
 
