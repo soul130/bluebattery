@@ -12,15 +12,17 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // -------------------------------------------------------------
-// 1. SQLite DB 안전 초기화 (테이블 자동 생성 및 기본 관리자 등록)
+// 1. SQLite DB 설정 (WAL 모드 적용으로 DB 잠금 차단)
 // -------------------------------------------------------------
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) console.error("DB 연결 실패:", err);
-    else console.log("SQLite DB 연결 성공");
+    else {
+        console.log("SQLite DB 연결 성공");
+        db.run("PRAGMA journal_mode = WAL;"); // 동시 쓰기/읽기 잠금 방지
+    }
 });
 
 db.serialize(() => {
-    // 회원 테이블
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE,
@@ -32,7 +34,6 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 예약 내역 테이블
     db.run(`CREATE TABLE IF NOT EXISTS reservations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_email TEXT,
@@ -46,7 +47,7 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 최고관리자 계정 기본 생성 (admin@blue.com / admin123)
+    // 최고 관리자 계정 생성
     db.run(`INSERT OR IGNORE INTO users (email, password, name, phone, role) 
             VALUES ('admin@blue.com', 'admin123', '최고관리자', '01000000000', 'admin')`);
 });
@@ -77,24 +78,20 @@ const BATTERY_DATABASE = [
 ];
 
 // -------------------------------------------------------------
-// 2. 인증 (회원가입 / 로그인) API
+// 2. Real 회원가입 API (전화번호 수집 및 JWT 발급)
 // -------------------------------------------------------------
 app.post('/api/register', (req, res) => {
     const { email, password, name, phone } = req.body;
     
     if (!email || !password || !name || !phone) {
-        return res.status(400).json({ message: '모든 입력 항목을 채워주세요.' });
+        return res.status(400).json({ message: '모든 항목을 입력해주세요.' });
     }
 
-    const query = `INSERT INTO users (email, password, name, phone, role) VALUES (?, ?, ?, ?, 'user')`;
-    
-    db.run(query, [email, password, name, phone], function(err) {
+    const stmt = db.prepare(`INSERT INTO users (email, password, name, phone, role) VALUES (?, ?, ?, ?, 'user')`);
+    stmt.run([email, password, name, phone], function(err) {
         if (err) {
-            console.error("회원가입 DB 오류:", err.message);
-            if (err.message.includes('UNIQUE')) {
-                return res.status(400).json({ message: '이미 가입된 이메일 주소입니다.' });
-            }
-            return res.status(500).json({ message: '회원가입 중 서버 오류가 발생했습니다.' });
+            console.error("회원가입 오류:", err);
+            return res.status(400).json({ message: '이미 존재하거나 등록할 수 없는 이메일입니다.' });
         }
         
         const token = jwt.sign({ email, name, role: 'user' }, JWT_SECRET, { expiresIn: '365d' });
@@ -104,8 +101,12 @@ app.post('/api/register', (req, res) => {
             user: { email, name, phone, role: 'user', hasCard: false } 
         });
     });
+    stmt.finalize();
 });
 
+// -------------------------------------------------------------
+// 3. Real 로그인 API
+// -------------------------------------------------------------
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     db.get(`SELECT * FROM users WHERE email = ? AND password = ?`, [email, password], (err, row) => {
@@ -119,7 +120,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 3. 카드 등록 및 조회 API
+// 4. Real 카드 등록 & 자동차 실시간 조회 API
 // -------------------------------------------------------------
 app.post('/api/save-card', (req, res) => {
     const { email, billingKey } = req.body;
@@ -129,9 +130,6 @@ app.post('/api/save-card', (req, res) => {
     });
 });
 
-// -------------------------------------------------------------
-// 4. 차량 실시간 조회 API
-// -------------------------------------------------------------
 app.post('/api/car-search', async (req, res) => {
     try {
         const { carNo, ownerName } = req.body;
@@ -170,7 +168,7 @@ app.post('/api/car-search', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 5. 예약 등록 및 관리자 전용 API
+// 5. Real 예약 저장 및 관리자 API
 // -------------------------------------------------------------
 app.post('/api/reserve', (req, res) => {
     const { userEmail, paymentId, carNo, batteryName, phone, reserveDate, address } = req.body;
@@ -191,7 +189,7 @@ app.get('/api/admin/reservations', (req, res) => {
 
 app.post('/api/admin/update-status', (req, res) => {
     const { id, status } = req.body;
-    db.run(`UPDATE reservations SET status = ? WHERE id = ?`, [id, status], function(err) {
+    db.run(`UPDATE reservations SET status = ? WHERE id = ?`, [status, id], function(err) {
         if (err) return res.status(500).json({ message: '상태 변경 실패' });
         res.json({ message: '예약 상태가 변경되었습니다.' });
     });
