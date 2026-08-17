@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>자동차 통합 서비스 앱</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .app-container { width: 100%; max-width: 430px; height: 100vh; max-height: 932px; background: #ffffff; display: flex; flex-direction: column; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.1); overflow: hidden; }
+        .app-header { padding: 18px 16px; background: #0f172a; color: #ffffff; display: flex; justify-content: space-between; align-items: center; }
+        .app-header h1 { font-size: 17px; font-weight: 700; }
+        .user-tag { font-size: 12px; color: #38bdf8; background: #1e293b; padding: 4px 8px; border-radius: 6px; }
+        .app-content { flex: 1; padding: 16px; overflow-y: auto; }
+        .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+        .card-title { font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .input-field { width: 100%; padding: 11px; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 8px; outline: none; }
+        .btn { width: 100%; padding: 12px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; margin-top: 4px; }
+        .btn-primary { background-color: #2563eb; color: #fff; }
+        .btn-success { background-color: #10b981; color: #fff; }
+        .btn-dark { background-color: #334155; color: #fff; }
+        .btn-outline { background-color: transparent; border: 1px solid #cbd5e1; color: #475569; }
+        .badge { display: inline-block; padding: 3px 8px; font-size: 11px; border-radius: 4px; font-weight: 600; }
+        .badge-active { background: #dcfce7; color: #15803d; }
+        .data-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        .modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 100; }
+        .modal { background: #ffffff; width: 88%; border-radius: 14px; padding: 20px; max-height: 85vh; overflow-y: auto; }
+        .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; text-align: center; }
+        .admin-box { background: #f8fafc; border: 1px dashed #94a3b8; padding: 10px; border-radius: 8px; margin-top: 8px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="app-header">
+        <h1>CarManager Pro</h1>
+        <span class="user-tag" id="userTag">비회원</span>
+    </div>
+
+    <div class="app-content">
+        <div class="card">
+            <div class="card-title">👤 계정 상태</div>
+            <div id="authButtons">
+                <button class="btn btn-primary" onclick="openModal('loginModal')">로그인</button>
+                <button class="btn btn-outline" onclick="openModal('signupModal')" style="margin-top:6px;">회원가입</button>
+            </div>
+            <div id="userInfo" style="display:none;">
+                <p style="font-size:14px; font-weight:600; margin-bottom:8px;" id="welcomeMsg"></p>
+                <button class="btn btn-dark" onclick="openAdminPanel()" id="adminBtn" style="display:none; margin-bottom:6px;">👑 관리자 페이지 열기</button>
+                <button class="btn btn-outline" onclick="logout()">로그아웃</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">🚗 차량 정보 조회 (실시간 API)</div>
+            <input type="text" id="carNumber" class="input-field" placeholder="차량번호 (예: 12가3456)">
+            <button class="btn btn-primary" onclick="searchCar()">조회하기</button>
+            <div id="carResult" style="display:none; margin-top:10px; background:#f8fafc; padding:10px; border-radius:6px;">
+                <div class="data-row"><span>차량번호</span><strong id="resCarNo">-</strong></div>
+                <div class="data-row"><span>검사구분</span><strong id="resCheckType">-</strong></div>
+                <div class="data-row"><span>유효시작일</span><strong id="resStartDate">-</strong></div>
+                <div class="data-row"><span>유효만료일</span><strong id="resEndDate">-</strong></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                💳 결제 수단 & 자동결제
+                <span class="badge badge-active" id="cardStatusBadge" style="display:none;">카드 등록됨</span>
+            </div>
+            <div id="cardSection">
+                <p style="font-size:12px; color:#64748b; margin-bottom:8px;">등록된 카드로 정기 점검 및 예약건이 자동 결제됩니다.</p>
+                <button class="btn btn-outline" onclick="openModal('cardModal')">카드 등록 / 변경</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">📅 정비/검사 예약</div>
+            <button class="btn btn-success" onclick="openModal('reserveModal')">새 예약 신청하기</button>
+            <div id="myReservation" style="margin-top:10px; font-size:13px; color:#475569;">
+                <em>현재 신청된 예약이 없습니다.</em>
+            </div>
+        </div>
+    </div>
+
+    <!-- 모달 창 영역 -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal">
+            <div class="modal-title">로그인</div>
+            <input type="text" id="loginId" class="input-field" placeholder="아이디 (관리자: admin)">
+            <input type="password" id="loginPw" class="input-field" placeholder="비밀번호 (관리자: 1234)">
+            <button class="btn btn-primary" onclick="login()">로그인</button>
+            <button class="btn btn-outline" onclick="closeModal('loginModal')" style="margin-top:6px;">취소</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="signupModal">
+        <div class="modal">
+            <div class="modal-title">회원가입</div>
+            <input type="text" id="signId" class="input-field" placeholder="아이디">
+            <input type="password" id="signPw" class="input-field" placeholder="비밀번호">
+            <input type="text" id="signName" class="input-field" placeholder="이름">
+            <button class="btn btn-primary" onclick="signup()">가입 완료</button>
+            <button class="btn btn-outline" onclick="closeModal('signupModal')" style="margin-top:6px;">취소</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="cardModal">
+        <div class="modal">
+            <div class="modal-title">카드 등록 (자동결제용)</div>
+            <input type="text" id="cardNum" class="input-field" placeholder="카드번호 16자리">
+            <input type="text" id="cardExp" class="input-field" placeholder="유효기간 (MM/YY)">
+            <button class="btn btn-success" onclick="registerCard()">등록 및 DB 저장</button>
+            <button class="btn btn-outline" onclick="closeModal('cardModal')" style="margin-top:6px;">취소</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="reserveModal">
+        <div class="modal">
+            <div class="modal-title">정비/검사 예약 신청</div>
+            <label style="font-size:12px; color:#64748b;">예약 날짜</label>
+            <input type="date" id="reserveDate" class="input-field">
+            <label style="font-size:12px; color:#64748b;">항목 선택</label>
+            <select id="reserveItem" class="input-field">
+                <option value="정기 정밀검사 (30,000원)">정기 정밀검사 (30,000원)</option>
+                <option value="엔진오일 교환 (55,000원)">엔진오일 교환 (55,000원)</option>
+                <option value="종합 안전점검 (20,000원)">종합 안전점검 (20,000원)</option>
+            </select>
+            <button class="btn btn-success" onclick="makeReservation()">예약 및 DB 승인 처리</button>
+            <button class="btn btn-outline" onclick="closeModal('reserveModal')" style="margin-top:6px;">취소</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal">
+            <div class="modal-title">👑 관리자 통제 센터 (실시간 DB)</div>
+            <p style="font-size:13px; font-weight:700; margin-top:10px;">1. 등록 회원 목록</p>
+            <div class="admin-box" id="adminUserList"></div>
+            <p style="font-size:13px; font-weight:700; margin-top:12px;">2. 예약 및 결제 내역</p>
+            <div class="admin-box" id="adminReserveList"></div>
+            <button class="btn btn-dark" onclick="closeModal('adminModal')" style="margin-top:16px;">닫기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const SERVICE_KEY = "4mkPqfQ0pkVlWAUP9jFgMR6ytaEF3oh+c70Gzg3TkURN/XiUbWpR9sjiS+xucxtogTvCiQ9lYBFODU/VmqW1Fw==";
+    let currentUser = null;
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    async function signup() {
+        const id = document.getElementById('signId').value.trim();
+        const pw = document.getElementById('signPw').value.trim();
+        const name = document.getElementById('signName').value.trim();
+        if(!id || !pw || !name) return alert('모든 정보를 입력하세요.');
+
+        const res = await fetch('/api/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, pw, name })
+        });
+        const data = await res.json();
+        if(res.ok) {
+            alert('회원가입 성공! DB에 등록되었습니다.');
+            closeModal('signupModal');
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function login() {
+        const id = document.getElementById('loginId').value.trim();
+        const pw = document.getElementById('loginPw').value.trim();
+
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, pw })
+        });
+        const data = await res.json();
+        if(res.ok) {
+            currentUser = data.user;
+            document.getElementById('welcomeMsg').innerText = `${currentUser.name}님 환영합니다!`;
+            document.getElementById('userTag').innerText = currentUser.isAdmin ? "관리자" : "일반회원";
+            document.getElementById('authButtons').style.display = 'none';
+            document.getElementById('userInfo').style.display = 'block';
+            document.getElementById('adminBtn').style.display = currentUser.isAdmin ? 'block' : 'none';
+            closeModal('loginModal');
+            alert('로그인 성공');
+        } else {
+            alert(data.error);
+        }
+    }
+
+    function logout() {
+        currentUser = null;
+        document.getElementById('userTag').innerText = "비회원";
+        document.getElementById('authButtons').style.display = 'block';
+        document.getElementById('userInfo').style.display = 'none';
+        document.getElementById('cardStatusBadge').style.display = 'none';
+        alert('로그아웃되었습니다.');
+    }
+
+    async function registerCard() {
+        if(!currentUser) return alert('로그인이 필요합니다.');
+        const cardNumber = document.getElementById('cardNum').value.trim();
+        const expDate = document.getElementById('cardExp').value.trim();
+
+        const res = await fetch('/api/card', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id, cardNumber, expDate })
+        });
+        if(res.ok) {
+            document.getElementById('cardStatusBadge').style.display = 'inline-block';
+            alert('카드가 DB에 등록되었습니다.');
+            closeModal('cardModal');
+        } else {
+            alert('카드 등록 실패');
+        }
+    }
+
+    async function makeReservation() {
+        if(!currentUser) return alert('로그인이 필요합니다.');
+        const reserveDate = document.getElementById('reserveDate').value;
+        const item = document.getElementById('reserveItem').value;
+
+        const res = await fetch('/api/reserve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id, userName: currentUser.name, reserveDate, item })
+        });
+        const data = await res.json();
+        if(res.ok) {
+            document.getElementById('myReservation').innerHTML = `
+                <strong>[최근 예약 내역]</strong><br>
+                날짜: ${reserveDate}<br>
+                항목: ${item}<br>
+                상태: <span style="color:#10b981; font-weight:bold;">${data.status}</span>
+            `;
+            alert('예약 및 자동결제 등록 완료!');
+            closeModal('reserveModal');
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function openAdminPanel() {
+        const res = await fetch('/api/admin/data');
+        const data = await res.json();
+
+        let uHtml = "";
+        data.users.forEach(u => {
+            uHtml += `<div>• ID: ${u.id} | 이름: ${u.name} (${u.isAdmin ? '관리자' : '회원'})</div>`;
+        });
+        document.getElementById('adminUserList').innerHTML = uHtml;
+
+        let rHtml = "";
+        if(data.reservations.length === 0) rHtml = "내역 없음";
+        else {
+            data.reservations.forEach(r => {
+                rHtml += `<div style="margin-bottom:6px;">• [${r.userName}] ${r.reserveDate} - ${r.item}<br><span style="color:#2563eb;">(${r.status})</span></div>`;
+            });
+        }
+        document.getElementById('adminReserveList').innerHTML = rHtml;
+
+        openModal('adminModal');
+    }
+
+    async function searchCar() {
+        const carNoInput = document.getElementById('carNumber').value.trim();
+        if (!carNoInput) return alert('차량 번호를 입력하세요.');
+
+        const url = `https://apis.data.go.kr/B551182/carCheckInfoService/getCarCheckInfo?serviceKey=${encodeURIComponent(SERVICE_KEY)}&carNo=${encodeURIComponent(carNoInput)}&type=json`;
+
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.response && data.response.body && data.response.body.items && data.response.body.items.item) {
+                const item = Array.isArray(data.response.body.items.item) ? data.response.body.items.item[0] : data.response.body.items.item;
+                document.getElementById('resCarNo').innerText = item.vhrno || carNoInput;
+                document.getElementById('resCheckType').innerText = item.inspKndNm || '정보 없음';
+                document.getElementById('resStartDate').innerText = item.inspValidBeginDt || '정보 없음';
+                document.getElementById('resEndDate').innerText = item.inspValidEndDt || '정보 없음';
+                document.getElementById('carResult').style.display = 'block';
+            } else {
+                alert('차량 정보를 찾을 수 없습니다.');
+            }
+        } catch (e) {
+            alert('API 연결 오류가 발생했습니다.');
+        }
+    }
+</script>
+</body>
+</html>
