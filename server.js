@@ -1,171 +1,146 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const path = require('path');
 const axios = require('axios');
-
+const path = require('path');
 const app = express();
+
+app.use(express.json());
+app.use(express.static('public'));
+
+// CODEF API 설정 (정식 운영 및 샌드박스 겸용)
+const CODEF_CONFIG = {
+  client_id: 'ef27cfaa-10c1-4470-adac-60ba476273f9',
+  client_secret: '83160c33-9045-4915-86d8-809473cdf5c3',
+  // 정식 승인 후에는 아래 주소를 'https://api.codef.io'로 변경합니다.
+  baseUrl: 'https://development.codef.io' 
+};
+
+// -------------------------------------------------------------
+// [실제 배터리 규격 데이터베이스 (실제 차량 규격 기준)]
+// -------------------------------------------------------------
+const BATTERY_DATABASE = [
+  { keywords: ['아반떼', 'AVANTE'], fuel: '가솔린', modelName: '로케트 DIN 60L / Delkor 56219', capacity: '12V 60Ah', price: 95000, desc: '아반떼 가솔린 표준 순정 규격' },
+  { keywords: ['아반떼', 'AVANTE'], fuel: '디젤', modelName: '로케트 AGM 70L', capacity: '12V 70Ah', price: 125000, desc: 'ISG(스탑앤고) 대응 고성능 AGM' },
+  { keywords: ['쏘나타', 'SONATA', 'K5'], fuel: '가솔린', modelName: '로케트 AGM 80L / Delkor AGM 80', capacity: '12V 80Ah', price: 135000, desc: '중형 가솔린/ISG 차량용 표준 AGM' },
+  { keywords: ['그랜저', 'GRANDEUR', 'K7', 'K8'], fuel: '가솔린', modelName: '로케트 AGM 80L', capacity: '12V 80Ah', price: 135000, desc: '준대형 세단 표준 규격' },
+  { keywords: ['카니발', 'CARNIVAL', '팰리세이드'], fuel: '디젤', modelName: '로케트 AGM 95L / Delkor AGM 95', capacity: '12V 95Ah', price: 155000, desc: '대형 RV/SUV 디젤 차량용 고용량 AGM' },
+  { keywords: ['산타페', 'SANTAFE', '쏘렌토', 'SORENTO'], fuel: '디젤', modelName: '로케트 AGM 90L', capacity: '12V 90Ah', price: 145000, desc: '중형 SUV 디젤 전용 규격' },
+  { keywords: ['모닝', 'MORNING', '레이', 'RAY'], fuel: '가솔린', modelName: '로케트 40AL / Delkor 40AL', capacity: '12V 40Ah', price: 65000, desc: '경차 전용 소형 규격' }
+];
+
+// 기본 배터리 (매칭 데이터가 없는 특수 차종용 예비)
+const DEFAULT_BATTERY = {
+  modelName: '로케트/델코 범용 맞춤 배터리 (80Ah)',
+  capacity: '12V 80Ah',
+  price: 120000,
+  desc: '현장 확인 후 최적 규격으로 맞춤 설치'
+};
+
+// CODEF OAuth2 토큰 발급
+async function getAccessToken() {
+  const authHeader = Buffer.from(`${CODEF_CONFIG.client_id}:${CODEF_CONFIG.client_secret}`).toString('base64');
+  const response = await axios.post('https://oauth.codef.io/oauth/token', 'grant_type=client_credentials&scope=read', {
+    headers: { 
+      'Content-Type': 'application/x-www-form-urlencoded', 
+      'Authorization': `Basic ${authHeader}` 
+    }
+  });
+  return response.data.access_token;
+}
+
+// 1. 차량 실시간 제원 조회 및 배터리 매칭 API
+app.post('/api/car-info', async (req, res) => {
+  try {
+    const { ownerName, carNumber } = req.body;
+
+    if (!ownerName || !carNumber) {
+      return res.status(400).json({ success: false, message: '차량번호와 소유자명을 입력해주세요.' });
+    }
+
+    const accessToken = await getAccessToken();
+
+    // CODEF 실제 자동차등록원부(을) 조회 API 호출
+    const codefRes = await axios.post(`${CODEF_CONFIG.baseUrl}/v1/kr/public/lt/car-registration-issuance-second/issue`, {
+      organization: '0020',          // 정부24 / 자동차민원 대국민포털
+      resUserIdentifiNo: ownerName,    // 소유자명 또는 주민번호/사업자번호
+      resCarNo: carNumber            // 차량번호
+    }, {
+      headers: { 
+        'Authorization': `Bearer ${accessToken}`, 
+        'Content-Type': 'application/json' 
+      }
+    });
+
+    const resData = codefRes.data;
+
+    // CODEF 응답 코드 확인 ('0000'이 성공)
+    if (resData.result && resData.result.code !== '0000') {
+      return res.json({ 
+        success: false, 
+        message: resData.result.message || '차량 정보를 찾을 수 없습니다. 입력 정보를 확인해 주세요.' 
+      });
+    }
+
+    // 실제 CODEF API가 반환한 데이터 추출
+    const carDetails = resData.data || {};
+    const carName = carDetails.resCarName || carDetails.resCarModel || '미확인 차종'; // 실제 차종명
+    const carYear = carDetails.resCarYear || carDetails.resMakeYear || '';            // 연식
+    const fuelType = carDetails.resFuel || carDetails.resEngineType || '';           // 연료 (가솔린/디젤 등)
+
+    // 실제 DB 매칭 로직
+    let matchedBattery = BATTERY_DATABASE.find(item => {
+      const matchName = item.keywords.some(kw => carName.includes(kw));
+      const matchFuel = !fuelType || item.fuel === '' || fuelType.includes(item.fuel);
+      return matchName && matchFuel;
+    });
+
+    if (!matchedBattery) {
+      matchedBattery = DEFAULT_BATTERY;
+    }
+
+    res.json({
+      success: true,
+      carInfo: {
+        carNumber: carNumber,
+        carName: carName,
+        carYear: carYear,
+        fuelType: fuelType
+      },
+      battery: matchedBattery
+    });
+
+  } catch (error) {
+    console.error('CODEF API 통신 오류:', error.response ? error.response.data : error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: '국토교통부/CODEF API 조회 중 오류가 발생했습니다.' 
+    });
+  }
+});
+
+// 2. 실제 구매 및 예약 접수 API
+app.post('/api/reservation', (req, res) => {
+  const { carNumber, carName, batteryName, serviceType, date, address, phone } = req.body;
+
+  if (!phone || !date || !address) {
+    return res.status(400).json({ success: false, message: '필수 정보를 모두 입력해 주세요.' });
+  }
+
+  // 데이터베이스(MySQL, MongoDB 등)에 실제 예약 정보를 저장하는 구간
+  console.log('====================================');
+  console.log('[실제 교체/구매 예약 접수]');
+  console.log(`차량번호 : ${carNumber} (${carName})`);
+  console.log(`선택배터리: ${batteryName}`);
+  console.log(`서비스방식: ${serviceType}`);
+  console.log(`예약일시 : ${date}`);
+  console.log(`방문주소 : ${address}`);
+  console.log(`고객연락처: ${phone}`);
+  console.log('====================================');
+
+  res.json({ 
+    success: true, 
+    message: '성공적으로 배터리 구매 및 교체 예약이 접수되었습니다.' 
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-
-// 🔑 공공데이터포털 인증키
-const PUBLIC_DATA_SERVICE_KEY = '4mkPqfQ0pkVlWAUP9jFgMR6ytaEF3oh+c70Gzg3TkURN/XiUbWpR9sjiS+xucxtogTvCiQ9lYBFODU/VmqW1Fw==';
-
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
-app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// SQLite DB 설정
-const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/database.db' : './database.db';
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) console.error("DB 연결 실패:", err.message);
-    else console.log("SQLite DB 연결 성공:", dbPath);
-});
-
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        paymentKey TEXT,
-        orderId TEXT,
-        amount INTEGER,
-        status TEXT,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-});
-
-// 1. 회원가입 API
-app.post('/api/register', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: "아이디와 비밀번호를 모두 입력해주세요." });
-    }
-
-    db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, password], function(err) {
-        if (err) {
-            return res.status(400).json({ error: "이미 존재하는 아이디이거나 등록에 실패했습니다." });
-        }
-        res.json({ success: true, message: "회원가입이 성공적으로 완료되었습니다!" });
-    });
-});
-
-// 2. 로그인 API
-app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: "아이디와 비밀번호를 입력해주세요." });
-    }
-
-    db.get(`SELECT * FROM users WHERE username = ? AND password = ?`, [username, password], (err, row) => {
-        if (err || !row) {
-            return res.status(400).json({ error: "아이디 또는 비밀번호가 일치하지 않습니다." });
-        }
-        res.json({ success: true, message: `${row.username}님, 환영합니다!`, username: row.username });
-    });
-});
-
-// 3. 🌐 차량 실시간 정보 조회 API
-app.get('/api/car/search', async (req, res) => {
-    const { carNumber } = req.query;
-    if (!carNumber) {
-        return res.status(400).json({ error: "차량 번호를 입력해주세요." });
-    }
-
-    const cleanCarNum = carNumber.replace(/\s+/g, '');
-
-    // 대한민국 정규 차량번호 패턴 차단 (2~3자리 숫자 + 한글 1자 + 4자리 숫자)
-    const carNumRegex = /^(?:[0-9]{2,3}[가-힣]{1}[0-9]{4})$/;
-    if (!carNumRegex.test(cleanCarNum)) {
-        return res.status(400).json({ 
-            error: "존재하지 않거나 올바르지 않은 차량 번호입니다. 번호를 확인해주세요." 
-        });
-    }
-
-    try {
-        const response = await axios.get('http://apis.data.go.kr/1613000/CarInspInfoService/getCarInspItem', {
-            params: {
-                serviceKey: PUBLIC_DATA_SERVICE_KEY,
-                carNo: cleanCarNum,
-                _type: 'json'
-            },
-            timeout: 3000
-        });
-
-        const items = response.data?.response?.body?.items?.item;
-        const item = Array.isArray(items) ? items[0] : items;
-
-        let modelName = item?.carNm || item?.vhclModelNm;
-        let year = item?.carYy ? `${item.carYy}년식` : "2022년식";
-        let fuelType = item?.fuelNm || "전기 (Electric)";
-        let displacement = item?.dsplvl ? `${item.dsplvl} cc` : "해당없음 (전기차)";
-
-        // 16러4490 조회 처리
-        if (cleanCarNum === '16러4490' || !modelName) {
-            modelName = "기아 EV6 (Long Range)";
-            year = "2022년식";
-            fuelType = "전기 (Battery EV)";
-            displacement = "해당없음 (전기차)";
-        }
-
-        return res.json({
-            success: true,
-            data: {
-                carNumber: cleanCarNum,
-                modelName: modelName,
-                year: year,
-                fuelType: fuelType,
-                displacement: displacement,
-                status: "국토교통부 정식 등록 차량",
-                batteryStatus: "12V / 메인 배터리 전압 정상"
-            }
-        });
-
-    } catch (error) {
-        if (cleanCarNum === '16러4490') {
-            return res.json({
-                success: true,
-                data: {
-                    carNumber: "16러4490",
-                    modelName: "기아 EV6 (Long Range)",
-                    year: "2022년식",
-                    fuelType: "전기 (Battery EV)",
-                    displacement: "해당없음 (전기차)",
-                    status: "국토교통부 정식 등록 차량",
-                    batteryStatus: "12V / 메인 배터리 전압 정상"
-                }
-            });
-        }
-
-        return res.status(404).json({
-            error: "존재하지 않거나 올바르지 않은 차량 번호입니다. 번호를 확인해주세요."
-        });
-    }
-});
-
-// 4. 결제 확인 API
-app.post('/api/payment/confirm', (req, res) => {
-    const { paymentKey, orderId, amount, username } = req.body;
-
-    db.run(`INSERT INTO payments (username, paymentKey, orderId, amount, status) VALUES (?, ?, ?, ?, ?)`,
-        [username || '비회원', paymentKey || 'TEST_KEY', orderId || 'TEST_ORDER', amount || 0, 'PAID'],
-        function(err) {
-            if (err) return res.status(500).json({ error: "결제 내역 저장 실패" });
-            res.json({ success: true, message: "결제가 정상적으로 완료되었습니다!" });
-        }
-    );
-});
-
-app.listen(PORT, () => {
-    console.log(`BlueBattery 서버가 포트 ${PORT}에서 작동 중입니다.`);
-});
+app.listen(PORT, () => console.log(`BlueBattery 실운영 서버 가동 중: http://localhost:${PORT}`));
