@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'BLUE_BATTERY_SECRET_KEY_2026';
 
 // -------------------------------------------------------------
-// 1. CORS 및 미들웨어 설정 (모든 요청 및 헤더 허용 - 버튼 먹통 방지)
+// 1. CORS 및 미들웨어 설정 (프론트엔드 연결 블로킹 완벽 차단)
 // -------------------------------------------------------------
 app.use(cors({
     origin: '*',
@@ -20,19 +20,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // -------------------------------------------------------------
-// 2. SQLite DB 설정 (WAL 모드 적용으로 동시성 락 완전히 차단)
+// 2. SQLite DB 설정 (WAL 모드 적용으로 DB 락/멈춤 현상 차단)
 // -------------------------------------------------------------
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) {
         console.error("SQLite DB 연결 실패:", err.message);
     } else {
         console.log("SQLite DB 연결 성공");
-        // DB 잠금(Lock) 및 타임아웃 멈춤 현상 해결 핵심 구문
         db.run("PRAGMA journal_mode = WAL;");
     }
 });
 
-// DB 테이블 생성 및 초기 데이터 설정
+// DB 테이블 초기화
 db.serialize(() => {
     // 회원 테이블
     db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -64,7 +63,7 @@ db.serialize(() => {
         if (err) console.error("reservations 테이블 생성 실패:", err.message);
     });
 
-    // 최고 관리자 계정 생성 (admin@blue.com / admin123)
+    // 최고 관리자 계정 기본 생성 (admin@blue.com / admin123)
     db.run(`INSERT OR IGNORE INTO users (email, password, name, phone, role) 
             VALUES ('admin@blue.com', 'admin123', '최고관리자', '01000000000', 'admin')`);
 });
@@ -94,7 +93,7 @@ async function getAccessToken() {
     }
 }
 
-// 배터리 차종별 매칭 DB
+// 배터리 매칭 데이터베이스
 const BATTERY_DATABASE = [
     { keywords: ['아반떼', 'AVANTE'], fuel: '가솔린', modelName: '로케트 DIN 60L / Delkor 56219', price: 95000 },
     { keywords: ['아반떼', 'AVANTE'], fuel: '디젤', modelName: '로케트 AGM 70L', price: 125000 },
@@ -106,7 +105,7 @@ const BATTERY_DATABASE = [
 ];
 
 // -------------------------------------------------------------
-// 4. 기본 백엔드 상태 확인 API
+// 4. 기본 백엔드 헬스체크 API
 // -------------------------------------------------------------
 app.get('/', (req, res) => {
     res.send('BlueBattery 백엔드 서버가 정상 작동 중입니다.');
