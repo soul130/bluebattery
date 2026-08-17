@@ -3,54 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlueBattery - 차량 조회 및 결제 서비스</title>
-    <!-- 토스페이먼츠 SDK 연동 -->
+    <title>BlueBattery - 차량 및 배터리 종합 관리</title>
+    <!-- 토스페이먼츠 공식 v1 SDK -->
     <script src="https://js.tosspayments.com/v1/payment"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .app-container { background: white; width: 100%; max-width: 480px; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-        h2 { color: #1a73e8; margin-top: 0; text-align: center; }
-        .section { margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
-        input { width: 100%; padding: 12px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
-        button { width: 100%; padding: 12px; background-color: #1a73e8; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; margin-top: 5px; }
-        button:hover { background-color: #1557b0; }
-        .btn-pay { background-color: #3182f6; }
-        .btn-pay:hover { background-color: #1b64da; }
-        .result-box { background: #f8f9fa; padding: 15px; border-radius: 6px; margin-top: 10px; font-size: 14px; border: 1px solid #e9ecef; }
-        .badge { display: inline-block; padding: 4px 8px; background: #e8f0fe; color: #1a73e8; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f0f4f9; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .card { background: #ffffff; width: 100%; max-width: 460px; padding: 28px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 82, 204, 0.08); }
+        h2 { color: #0052cc; margin-top: 0; text-align: center; font-size: 22px; margin-bottom: 24px; }
+        .box { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e9ecef; }
+        .box h3 { font-size: 15px; color: #333; margin-top: 0; margin-bottom: 12px; }
+        input { width: 100%; padding: 12px 14px; margin: 5px 0; border: 1px solid #ced4da; border-radius: 8px; font-size: 14px; outline: none; transition: border 0.2s; }
+        input:focus { border-color: #0052cc; }
+        button { width: 100%; padding: 13px; background-color: #0052cc; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 6px; transition: background 0.2s; }
+        button:hover { background-color: #003d99; }
+        .btn-group { display: flex; gap: 8px; }
+        .btn-gray { background-color: #6c757d; }
+        .btn-gray:hover { background-color: #5a6268; }
+        .btn-pay { background-color: #28a745; }
+        .btn-pay:hover { background-color: #218838; }
+        .result-box { background: #f8f9fa; border: 1px solid #e9ecef; padding: 14px; border-radius: 8px; margin-top: 12px; font-size: 13px; line-height: 1.7; color: #212529; }
+        .status { margin-top: 8px; font-size: 13px; font-weight: 600; }
+        .status.success { color: #28a745; }
+        .status.error { color: #dc3545; }
     </style>
 </head>
 <body>
 
-<div class="app-container">
-    <h2>BlueBattery 서비스</h2>
+<div class="card">
+    <h2>⚡ BlueBattery Service</h2>
 
-    <!-- 1. 계정 섹션 -->
-    <div class="section">
-        <h3><span class="badge">1단계</span> 계정 로그인</h3>
-        <input type="text" id="username" placeholder="아이디">
-        <input type="password" id="password" placeholder="비밀번호">
-        <div style="display: flex; gap: 10px;">
+    <!-- 1. 계정 인증 (로그인/회원가입) -->
+    <div class="box">
+        <h3>1. 사용자 계정 인증</h3>
+        <input type="text" id="username" placeholder="아이디 입력">
+        <input type="password" id="password" placeholder="비밀번호 입력">
+        <div class="btn-group">
             <button onclick="handleAuth('/api/login')">로그인</button>
-            <button onclick="handleAuth('/api/register')" style="background-color: #5f6368;">회원가입</button>
+            <button class="btn-gray" onclick="handleAuth('/api/register')">회원가입</button>
         </div>
-        <div id="auth-status" style="margin-top: 8px; font-weight: bold;"></div>
+        <div id="auth-status" class="status"></div>
     </div>
 
-    <!-- 2. 차량 정보 조회 섹션 -->
-    <div class="section">
-        <h3><span class="badge">2단계</span> 차량 정보 조회</h3>
+    <!-- 2. 차량 정보 검색 -->
+    <div class="box">
+        <h3>2. 차량 실시간 정보 조회</h3>
         <input type="text" id="car-number" placeholder="차량 번호 입력 (예: 12가3456)">
-        <button onclick="searchCar()">차량 검색하기</button>
-        <div id="car-result" class="result-box" style="display: none;"></div>
+        <button onclick="searchCar()">차량 정보 검색</button>
+        <div id="car-result" class="result-box" style="display:none;"></div>
     </div>
 
-    <!-- 3. 결제 시스템 섹션 -->
-    <div class="section" style="border-bottom: none;">
-        <h3><span class="badge">3단계</span> 이용권 및 배터리 서비스 결제</h3>
-        <p style="font-size: 13px; color: #666;">실제 토스페이먼츠 결제 연동 테스트 (테스트 결제 진행)</p>
-        <input type="number" id="pay-amount" value="10000" placeholder="결제 금액 (원)">
-        <button class="btn-pay" onclick="requestPayment()">카드 / 간편결제 진행</button>
+    <!-- 3. 결제 테스트 -->
+    <div class="box" style="border-bottom:none; margin-bottom: 0; padding-bottom: 0;">
+        <h3>3. 이용권 구매 및 결제 테스트</h3>
+        <input type="number" id="pay-amount" value="10000" placeholder="결제 금액">
+        <button class="btn-pay" onclick="requestPayment()">토스페이먼츠 결제하기</button>
     </div>
 </div>
 
@@ -58,66 +65,92 @@
     const API_URL = "https://bluebattery.onrender.com";
     let currentUser = "";
 
-    // 토스페이먼츠 테스트 클라이언트 키
+    // 토스페이먼츠공공 공식 테스트 클라이언트 키
     const tossPayments = TossPayments("test_ck_D53483MbeDj2q9b233y812W40921");
 
+    // 회원가입 및 로그인 처리
     async function handleAuth(endpoint) {
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
+        const usernameInput = document.getElementById('username').value.trim();
+        const passwordInput = document.getElementById('password').value.trim();
         const statusDiv = document.getElementById('auth-status');
+
+        if (!usernameInput || !passwordInput) {
+            statusDiv.className = "status error";
+            statusDiv.innerText = "아이디와 비밀번호를 모두 입력해주세요.";
+            return;
+        }
+
+        statusDiv.className = "status";
+        statusDiv.innerText = "처리 중...";
 
         try {
             const res = await fetch(API_URL + endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username: usernameInput, password: passwordInput })
             });
+
             const data = await res.json();
-            if (res.ok) {
-                statusDiv.style.color = "green";
+
+            if (res.ok && data.success) {
+                statusDiv.className = "status success";
                 statusDiv.innerText = data.message;
-                if(data.username) currentUser = data.username;
+                if (data.username) currentUser = data.username;
             } else {
-                statusDiv.style.color = "red";
-                statusDiv.innerText = data.error;
+                statusDiv.className = "status error";
+                statusDiv.innerText = data.error || "처리 중 오류가 발생했습니다.";
             }
         } catch (err) {
-            statusDiv.style.color = "red";
-            statusDiv.innerText = "서버 통신 실패";
+            statusDiv.className = "status error";
+            statusDiv.innerText = "서버 연결 실패! Render 서버 구동 상태를 확인하세요.";
         }
     }
 
+    // 차량 검색 처리
     async function searchCar() {
-        const carNumber = document.getElementById('car-number').value;
+        const carNumber = document.getElementById('car-number').value.trim();
         const resultDiv = document.getElementById('car-result');
-        if (!carNumber) return alert("차량 번호를 입력하세요.");
+
+        if (!carNumber) {
+            alert("차량 번호를 입력해주세요.");
+            return;
+        }
+
+        resultDiv.style.display = "block";
+        resultDiv.innerHTML = "차량 정보 조회 중...";
 
         try {
             const res = await fetch(`${API_URL}/api/car/search?carNumber=${encodeURIComponent(carNumber)}`);
             const response = await res.json();
 
-            if (response.success) {
+            if (res.ok && response.success) {
                 const car = response.data;
-                resultDiv.style.display = "block";
                 resultDiv.innerHTML = `
-                    <b>조회 결과:</b><br>
-                    - 차량번호: ${car.carNumber}<br>
-                    - 모델명: ${car.modelName}<br>
-                    - 연식: ${car.year}<br>
-                    - 연료: ${car.fuelType}<br>
-                    - 배터리/엔진: ${car.displacement} (${car.batteryCapacity})
+                    <strong style="color:#0052cc;">[${car.carNumber} 조회 결과]</strong><br>
+                    • <b>모델명:</b> ${car.modelName}<br>
+                    • <b>연식:</b> ${car.year}<br>
+                    • <b>연료구분:</b> ${car.fuelType}<br>
+                    • <b>배기량:</b> ${car.displacement}<br>
+                    • <b>등록상태:</b> ${car.status}<br>
+                    • <b>배터리 상태:</b> ${car.batteryStatus}
                 `;
+            } else {
+                resultDiv.innerHTML = `<span style="color:red;">${response.error || "차량 정보를 찾을 수 없습니다."}</span>`;
             }
         } catch (err) {
-            alert("차량 조회 실패");
+            resultDiv.innerHTML = `<span style="color:red;">서버 통신 오류가 발생했습니다.</span>`;
         }
     }
 
+    // 결제 요청 처리
     function requestPayment() {
         const amount = parseInt(document.getElementById('pay-amount').value);
-        if (!amount || amount <= 0) return alert("올바른 금액을 입력해주세요.");
+        if (!amount || amount <= 0) {
+            alert("올바른 결제 금액을 입력해주세요.");
+            return;
+        }
 
-        const orderId = 'ORDER_' + new Date().getTime();
+        const orderId = 'BB_' + new Date().getTime();
 
         tossPayments.requestPayment('카드', {
             amount: amount,
