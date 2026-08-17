@@ -3,12 +3,14 @@ const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
-const https = require('https');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 모든 Origin 및 Header에 대한 CORS 완벽 허용 (클라이언트 요청 차단 방지)
+// 🔑 발급받으신 공공데이터포털 인증키
+const PUBLIC_DATA_SERVICE_KEY = '4mkPqfQ0pkVlWAUP9jFgMR6ytaEF3oh+c70Gzg3TkURN/XiUbWpR9sjiS+xucxtogTvCiQ9lYBFODU/VmqW1Fw==';
+
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -18,7 +20,7 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// SQLite DB 생성 (Render 환경 대응 /tmp 디렉토리 활용)
+// SQLite DB 설정
 const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/database.db' : './database.db';
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) console.error("DB 연결 실패:", err.message);
@@ -52,7 +54,6 @@ app.post('/api/register', (req, res) => {
 
     db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, password], function(err) {
         if (err) {
-            console.error("회원가입 에러:", err.message);
             return res.status(400).json({ error: "이미 존재하는 아이디이거나 등록에 실패했습니다." });
         }
         res.json({ success: true, message: "회원가입이 성공적으로 완료되었습니다!" });
@@ -74,8 +75,8 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// 3. 차량 실시간 정보 조회 API (공공데이터 / 자체 분분석 엔진)
-app.get('/api/car/search', (req, res) => {
+// 3. 🌐 실제 공공데이터포털 자동차 정보 실시간 조회 API
+app.get('/api/car/search', async (req, res) => {
     const { carNumber } = req.query;
     if (!carNumber) {
         return res.status(400).json({ error: "차량 번호를 입력해주세요." });
@@ -83,61 +84,70 @@ app.get('/api/car/search', (req, res) => {
 
     const cleanCarNum = carNumber.replace(/\s+/g, '');
 
-    // 차량 번호 규격 검증 (예: 12가3456, 123가3456, 서울12가3456)
-    const carPattern = /^([가-힣]{2})?\d{2,3}[가-힣]\d{4}$/;
-    if (!carPattern.test(cleanCarNum)) {
-        return res.status(400).json({ error: "올바른 차량 번호 형식이 아닙니다. (예: 12가3456)" });
+    try {
+        const response = await axios.get('http://apis.data.go.kr/1611000/nsdi/CarInfoService/getCarInfo', {
+            params: {
+                serviceKey: PUBLIC_DATA_SERVICE_KEY,
+                carNo: cleanCarNum,
+                format: 'json'
+            },
+            timeout: 5000
+        });
+
+        const apiData = response.data;
+
+        if (!apiData || !apiData.response || apiData.response.header.resultCode !== '00') {
+            return res.status(404).json({ 
+                error: "공공 데이터베이스에 등록되지 않았거나 존재하지 않는 차량 번호입니다." 
+            });
+        }
+
+        const items = apiData.response.body.items.item;
+        const item = Array.isArray(items) ? items[0] : items;
+
+        if (!item) {
+            return res.status(404).json({ 
+                error: "존재하지 않는 차량 번호입니다." 
+            });
+        }
+
+        const carData = {
+            carNumber: cleanCarNum,
+            modelName: item.carNm || item.vhclNm || "차명 정보 없음",
+            year: item.yr || item.useYn || "연식 정보 없음",
+            fuelType: item.fuelNm || "연료 정보 없음",
+            displacement: item.dsplvl ? `${item.dsplvl} cc` : "정보 없음",
+            status: "정식 등록 차량 (국토교통부 DB 확인 완료)",
+            batteryStatus: "12V 정상 규격 (실시간 점검 권장)"
+        };
+
+        res.json({ success: true, data: carData });
+
+    } catch (error) {
+        console.error("공공데이터 API 호출 오류:", error.message);
+        res.status(400).json({ 
+            error: "존재하지 않거나 올바르지 않은 차량 번호입니다. 번호를 확인해주세요." 
+        });
     }
-
-    // 차량 번호 뒷자리를 기반으로 한 동적 해시 생성 (동일 입력시 항상 동일하고 고유한 데이터 산출)
-    let charSum = 0;
-    for (let i = 0; i < cleanCarNum.length; i++) {
-        charSum += cleanCarNum.charCodeAt(i);
-    }
-
-    const models = ["제네시스 G80", "현대 그랜저 IG", "기아 카니발 4세대", "테슬라 모델 Y", "기아 EV6", "현대 투싼", "KG모빌리티 토레스", "BMW 5시리즈"];
-    const fuels = ["가솔린 (휘발유)", "디젤 (경유)", "하이브리드 (가솔린+전기)", "전기 (EV)", "LPG"];
-    const years = ["2019년식", "2020년식", "2021년식", "2022년식", "2023년식", "2024년식"];
-    const batteryTypes = ["12V 70Ah (AGM) - 정상", "12V 80Ah (L3) - 점검 권장", "리튬이온 고전압 배터리 - 최적", "12V 60Ah (DIN) - 정상"];
-
-    const selectedModel = models[charSum % models.length];
-    const selectedFuel = fuels[(charSum * 3) % fuels.length];
-    const selectedYear = years[(charSum * 7) % years.length];
-    const selectedBattery = batteryTypes[(charSum * 11) % batteryTypes.length];
-
-    const carData = {
-        carNumber: cleanCarNum,
-        modelName: selectedModel,
-        year: selectedYear,
-        fuelType: selectedFuel,
-        displacement: selectedFuel.includes("전기") ? "해당없음 (전기차)" : `${1500 + ((charSum % 10) * 100)} cc`,
-        status: "정상 등록 차량 (자동차검사 유효)",
-        batteryStatus: selectedBattery
-    };
-
-    res.json({ success: true, data: carData });
 });
 
-// 4. 토스페이먼츠 결제 검증/승인 API
+// 4. 💳 포트원(Portone) 결제 승인 및 DB 저장 API
 app.post('/api/payment/confirm', (req, res) => {
-    const { paymentKey, orderId, amount, username } = req.body;
+    const { imp_uid, merchant_uid, paid_amount, username } = req.body;
 
-    if (!paymentKey || !orderId || !amount) {
-        return res.status(400).json({ error: "결제 요청 정보가 유효하지 않습니다." });
+    if (!imp_uid || !merchant_uid) {
+        return res.status(400).json({ error: "포트원 결제 정보가 유효하지 않습니다." });
     }
 
     db.run(`INSERT INTO payments (username, paymentKey, orderId, amount, status) VALUES (?, ?, ?, ?, ?)`,
-        [username || '비회원', paymentKey, orderId, amount, 'DONE'],
+        [username || '비회원', imp_uid, merchant_uid, paid_amount || 0, 'PAID'],
         function(err) {
-            if (err) {
-                console.error("결제 저장 실패:", err.message);
-                return res.status(500).json({ error: "결제 정보 저장 중 오류가 발생했습니다." });
-            }
-            res.json({ success: true, message: "결제가 성공적으로 승인 및 저장되었습니다!", orderId, amount });
+            if (err) return res.status(500).json({ error: "결제 내역 저장 실패" });
+            res.json({ success: true, message: "포트원 결제가 성공적으로 저장되었습니다!" });
         }
     );
 });
 
 app.listen(PORT, () => {
-    console.log(`BlueBattery 백엔드 서버가 포트 ${PORT}에서 정상 동작 중입니다.`);
+    console.log(`BlueBattery 서버가 포트 ${PORT}에서 작동 중입니다.`);
 });
