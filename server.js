@@ -12,7 +12,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // -------------------------------------------------------------
-// 1. SQLite DB 설정 (회원, 카드정보, 예약 내역)
+// 1. SQLite DB 설정 (회원, 카드정보, 예약 내역, 관리자 권한)
 // -------------------------------------------------------------
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) console.error("DB 연결 실패:", err);
@@ -20,12 +20,14 @@ const db = new sqlite3.Database('./database.db', (err) => {
 });
 
 db.serialize(() => {
-    // 회원 테이블
+    // 회원 테이블 (phone, role 추가)
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE,
         password TEXT,
         name TEXT,
+        phone TEXT,
+        role TEXT DEFAULT 'user',
         billing_key TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -40,8 +42,17 @@ db.serialize(() => {
         phone TEXT,
         reserve_date TEXT,
         address TEXT,
+        status TEXT DEFAULT '접수완료',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // 기존 DB 컬럼 누락 방지 (자동 컬럼 추가)
+    db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, () => {});
+    db.run(`ALTER TABLE reservations ADD COLUMN status TEXT DEFAULT '접수완료'`, () => {});
+
+    // 기본 관리자 계정 생성 (admin@blue.com / admin123)
+    db.run(`INSERT OR IGNORE INTO users (email, password, name, phone, role) VALUES ('admin@blue.com', 'admin123', '최고관리자', '01000000000', 'admin')`);
 });
 
 // CODEF API 설정
@@ -73,13 +84,18 @@ const BATTERY_DATABASE = [
 // 2. 인증 (회원가입 / 로그인) API
 // -------------------------------------------------------------
 app.post('/api/register', (req, res) => {
-    const { email, password, name } = req.body;
-    if (!email || !password || !name) return res.status(400).json({ message: '모든 항목을 입력해주세요.' });
+    const { email, password, name, phone } = req.body;
+    if (!email || !password || !name || !phone) {
+        return res.status(400).json({ message: '이름, 이메일, 비밀번호, 전화번호를 모두 입력해주세요.' });
+    }
 
-    db.run(`INSERT INTO users (email, password, name) VALUES (?, ?, ?)`, [email, password, name], function(err) {
-        if (err) return res.status(400).json({ message: '이미 존재하거나 등록할 수 없는 이메일입니다.' });
-        const token = jwt.sign({ email, name }, JWT_SECRET, { expiresIn: '365d' });
-        res.json({ message: '회원가입 성공', token, user: { email, name, hasCard: false } });
+    db.run(`INSERT INTO users (email, password, name, phone, role) VALUES (?, ?, ?, ?, 'user')`, [email, password, name, phone], function(err) {
+        if (err) {
+            console.error("회원가입 DB 에러:", err);
+            return res.status(400).json({ message: '이미 가입된 이메일이거나 등록 중 오류가 발생했습니다.' });
+        }
+        const token = jwt.sign({ email, name, role: 'user' }, JWT_SECRET, { expiresIn: '365d' });
+        res.json({ message: '회원가입 성공', token, user: { email, name, phone, role: 'user', hasCard: false } });
     });
 });
 
@@ -87,16 +103,16 @@ app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     db.get(`SELECT * FROM users WHERE email = ? AND password = ?`, [email, password], (err, row) => {
         if (err || !row) return res.status(401).json({ message: '이메일 또는 비밀번호가 일치하지 않습니다.' });
-        const token = jwt.sign({ email: row.email, name: row.name }, JWT_SECRET, { expiresIn: '365d' });
+        const token = jwt.sign({ email: row.email, name: row.name, role: row.role }, JWT_SECRET, { expiresIn: '365d' });
         res.json({ 
             token, 
-            user: { email: row.email, name: row.name, hasCard: !!row.billing_key } 
+            user: { email: row.email, name: row.name, phone: row.phone, role: row.role || 'user', hasCard: !!row.billing_key } 
         });
     });
 });
 
 // -------------------------------------------------------------
-// 3. 카드 등록 (빌링키 저장) 및 자동결제 API
+// 3. 카드 등록 및 조회 API
 // -------------------------------------------------------------
 app.post('/api/save-card', (req, res) => {
     const { email, billingKey } = req.body;
@@ -130,8 +146,6 @@ app.post('/api/car-search', async (req, res) => {
 
         const carDetails = resData.data || {};
         const carModel = carDetails.resCarName || carDetails.resCarModel || '조회 완료 차량';
-        const carYear = carDetails.resCarYear || carDetails.resMakeYear || '';
-        const fuelType = carDetails.resFuel || carDetails.resEngineType || '';
 
         let matched = BATTERY_DATABASE.find(item => item.keywords.some(kw => carModel.includes(kw)));
         const recommendedBatteries = matched ? [
@@ -142,22 +156,39 @@ app.post('/api/car-search', async (req, res) => {
             { name: '로케트 AGM80 (스탑앤고 고성능)', price: 145000 }
         ];
 
-        res.json({ carNo, ownerName, carModel, carYear, recommendedBatteries });
+        res.json({ carNo, ownerName, carModel, recommendedBatteries });
     } catch (error) {
         res.status(500).json({ message: '국토부/CODEF API 조회 중 오류가 발생했습니다.' });
     }
 });
 
 // -------------------------------------------------------------
-// 5. 예약 등록 API
+// 5. 예약 등록 및 관리자 전용 API
 // -------------------------------------------------------------
 app.post('/api/reserve', (req, res) => {
     const { userEmail, paymentId, carNo, batteryName, phone, reserveDate, address } = req.body;
-    const query = `INSERT INTO reservations (user_email, payment_id, car_no, battery_name, phone, reserve_date, address) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const query = `INSERT INTO reservations (user_email, payment_id, car_no, battery_name, phone, reserve_date, address, status) VALUES (?, ?, ?, ?, ?, ?, ?, '접수완료')`;
     
     db.run(query, [userEmail, paymentId, carNo, batteryName, phone, reserveDate, address], function(err) {
         if (err) return res.status(500).json({ message: '예약 저장 실패' });
         res.json({ message: '예약이 성공적으로 완료되었습니다.', id: this.lastID });
+    });
+});
+
+// [관리자 API] 전체 예약 내역 조회
+app.get('/api/admin/reservations', (req, res) => {
+    db.all(`SELECT * FROM reservations ORDER BY id DESC`, [], (err, rows) => {
+        if (err) return res.status(500).json({ message: '조회 실패' });
+        res.json(rows);
+    });
+});
+
+// [관리자 API] 예약 상태 변경 (예: 접수완료 -> 작업완료 / 취소)
+app.post('/api/admin/update-status', (req, res) => {
+    const { id, status } = req.body;
+    db.run(`UPDATE reservations SET status = ? WHERE id = ?`, [status, id], function(err) {
+        if (err) return res.status(500).json({ message: '상태 변경 실패' });
+        res.json({ message: '예약 상태가 변경되었습니다.' });
     });
 });
 
